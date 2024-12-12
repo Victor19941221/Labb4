@@ -1,0 +1,120 @@
+﻿@page "/movies/edit/{MovieId}"
+@using Labb4.Models
+@using MongoDB.Bson
+
+@inject MovieService MovieService
+@inject ActorService ActorService
+@inject NavigationManager NavigationManager
+
+@rendermode InteractiveServer
+
+<h3>Edit Movie</h3>
+
+@if (movie == null || allActors == null)
+{
+    <p>Loading movie and actors...</p>
+}
+else
+{
+    <div class="form-group">
+        <label>Title:</label>
+        <input @bind="movie.Title" class="form-control" />
+    </div>
+
+    <div class="form-group">
+        <label>Actors:</label>
+        @foreach (var actor in allActors)
+        {
+            <div>
+                <input type="checkbox" checked="@IsActorSelected(actor)" @onchange="@(e => OnActorSelectedChanged(e, actor))" />
+                <label>@actor.Name</label>
+            </div>
+        }
+    </div>
+
+    <button type="button" class="btn btn-success" @onclick="SaveChanges">
+        Save Changes
+    </button>
+    <button type="button" class="btn btn-secondary" @onclick="Cancel">
+        Cancel
+    </button>
+}
+
+@code {
+    [Parameter]
+    public string MovieId { get; set; }
+
+    private Movie movie;
+    private List<Actor> allActors;
+    private List<Actor> selectedActors = new List<Actor>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load the movie and all actors
+        movie = await MovieService.GetMovieByIdAsync(MovieId);
+        allActors = await ActorService.GetActorsAsync();
+
+        // Set selectedActors based on movie's ActorIds
+        selectedActors = allActors
+            .Where(actor => movie.ActorIds?.Any(id => id == new ObjectId(actor.Id)) == true)
+            .ToList();
+    }
+
+    private bool IsActorSelected(Actor actor)
+    {
+        return selectedActors.Any(a => a.Id == actor.Id);
+    }
+
+    private void OnActorSelectedChanged(ChangeEventArgs e, Actor actor)
+    {
+        if ((bool)e.Value)
+        {
+            if (!selectedActors.Contains(actor))
+                selectedActors.Add(actor);
+        }
+        else
+        {
+            selectedActors.Remove(actor);
+        }
+    }
+
+    private async Task SaveChanges()
+    {
+        if (string.IsNullOrWhiteSpace(movie.Title))
+        {
+            Console.WriteLine("Movie title is required.");
+            return;
+        }
+
+        // Set ActorIds based on selected actors' ObjectIds
+        movie.ActorIds = selectedActors
+            .Where(actor => actor.Id != null)
+            .Select(actor => new ObjectId(actor.Id))
+            .ToList();
+
+        // Update the movie in the database
+        await MovieService.UpdateMovieAsync(movie.Id, movie);
+
+        // Synchronize each actor's `MovieIds` list
+        foreach (var actor in allActors)
+        {
+            if (selectedActors.Contains(actor))
+            {
+                await ActorService.AddMovieToActorAsync(actor.Id, new ObjectId(movie.Id));
+            }
+            else
+            {
+                await ActorService.RemoveMovieFromActorAsync(actor.Id, new ObjectId(movie.Id));
+            }
+        }
+
+        // Navigate back to the movies list
+        NavigationManager.NavigateTo("/movies");
+    }
+
+    private void Cancel()
+    {
+        // Navigate back to the movies list without saving
+        NavigationManager.NavigateTo("/movies");
+    }
+}

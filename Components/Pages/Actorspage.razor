@@ -1,0 +1,148 @@
+﻿@page "/actor"
+@using Labb4.Models
+@using MongoDB.Bson
+@inject ActorService ActorService
+@inject MovieService MovieService
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+<h3>Actors</h3>
+
+@if (actors == null || allMovies == null)
+{
+    <p>Loading actors and movies...</p>
+}
+else
+{
+    <!-- Form to Create Actor -->
+    <h4>Add a new actor</h4>
+    <div class="form-group">
+        <label>Name:</label>
+        <input @bind="newActor.Name" class="form-control" />
+    </div>
+
+    <div class="form-group">
+        <label>Movies:</label>
+        @foreach (var movie in allMovies)
+        {
+            <div>
+                <input type="checkbox" checked="@IsMovieSelected(movie)" @onchange="@(e => OnMovieSelectedChanged(e, movie))" />
+                <label>@movie.Title</label>
+            </div>
+        }
+    </div>
+
+    <button type="button" class="btn btn-primary" @onclick="CreateActor">
+        Create Actor
+    </button>
+
+    <hr />
+
+    <!-- Display Actors -->
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Movies</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var actor in actors)
+            {
+                <tr>
+                    <td>@actor.Name</td>
+                    <td>
+                        @foreach (var movieId in actor.MovieIds)
+                        {
+                            <span>@GetMovieTitle(movieId)</span>
+                            <br />
+                        }
+                    </td>
+                    <td>
+                        <button @onclick="() => DeleteActor(actor.Id)" class="btn btn-danger btn-sm">Delete</button>
+                        <button @onclick="() => NavigateToEdit(actor.Id)" class="btn btn-warning btn-sm">Edit</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private Actor newActor = new Actor { Name = string.Empty };
+    private List<Actor> actors;
+    private List<Movie> allMovies;
+    private List<Movie> selectedMovies = new List<Movie>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        actors = await ActorService.GetActorsAsync();
+        allMovies = await MovieService.GetMoviesWithActorsInfo();
+    }
+
+    private bool IsMovieSelected(Movie movie) => selectedMovies.Any(m => m.Id == movie.Id);
+
+    private void OnMovieSelectedChanged(ChangeEventArgs e, Movie movie)
+    {
+        if ((bool)e.Value)
+        {
+            if (!selectedMovies.Contains(movie))
+                selectedMovies.Add(movie);
+        }
+        else
+        {
+            selectedMovies.Remove(movie);
+        }
+    }
+
+    private string GetMovieTitle(ObjectId movieId)
+    {
+        var movie = allMovies.FirstOrDefault(m => m.Id == movieId.ToString());
+        return movie?.Title ?? "Unknown";
+    }
+
+    private void NavigateToEdit(string actorId)
+    {
+        NavigationManager.NavigateTo($"/actors/edit/{actorId}");
+    }
+
+    private async Task CreateActor()
+    {
+        if (string.IsNullOrWhiteSpace(newActor.Name))
+        {
+            Console.WriteLine("Actor name is required.");
+            return;
+        }
+
+        // Step 1: Set MovieIds for the new actor based on selected movies
+        newActor.MovieIds = selectedMovies
+            .Where(movie => movie.Id != null)
+            .Select(movie => new ObjectId(movie.Id))
+            .ToList();
+
+        // Step 2: Save the new actor to the database
+        await ActorService.CreateActorAsync(newActor);
+        var newActorId = new ObjectId(newActor.Id);
+
+        // Step 3: Update each selected movie's ActorIds and ActorsInfo fields
+        foreach (var movie in selectedMovies)
+        {
+            await MovieService.AppendActorToMovieAsync(movie.Id, newActor);
+        }
+
+        // Reload actors and reset form fields for new entries
+        actors = await ActorService.GetActorsAsync();
+        newActor = new Actor { Name = string.Empty };
+        selectedMovies.Clear();
+    }
+
+
+    private async Task DeleteActor(string actorId)
+    {
+        await ActorService.DeleteActorAsync(actorId);
+        actors = await ActorService.GetActorsAsync();
+        allMovies = await MovieService.GetMoviesWithActorsInfo();
+    }
+}
+

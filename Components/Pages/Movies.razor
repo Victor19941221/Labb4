@@ -1,0 +1,167 @@
+﻿@page "/movies"
+@using Labb4.Models
+@using MongoDB.Bson
+@inject MovieService MovieService
+@inject ActorService ActorService
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+<h3>Movies</h3>
+
+@if (allActors == null || movies == null)
+{
+    <p>Loading movies and actors...</p>
+}
+else
+{
+    <!-- Form to Create Movie -->
+    <h4>Add a new movie</h4>
+    <div class="form-group">
+        <label>Title:</label>
+        <input @bind="newMovie.Title" class="form-control" />
+    </div>
+
+    <div class="form-group">
+        <label>Actors:</label>
+        @foreach (var actor in allActors)
+        {
+            <div>
+                <input type="checkbox" checked="@IsActorSelected(actor)" @onchange="@(e => OnActorSelectedChanged(e, actor))" />
+                <label>@actor.Name</label>
+            </div>
+        }
+    </div>
+
+    <button type="button" class="btn btn-primary" @onclick="CreateMovie">
+        Create Movie
+    </button>
+
+    <hr />
+
+    <!-- Display Movies -->
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Actors</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var movie in movies)
+            {
+                <tr>
+                    <td>@movie.Title</td>
+                    <td>
+                        @foreach (var actor in movie.ActorsInfo)
+                        {
+                            <span>@actor.Name</span>
+                            <br />
+                        }
+                    </td>
+                    <td>
+                        
+                        <button @onclick="() => DeleteMovie(movie.Id)" class="btn btn-danger btn-sm">Delete</button>
+                        <button @onclick="() => NavigateToEdit(movie.Id)" class="btn btn-warning btn-sm">Edit</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private Movie newMovie = new Movie { ActorsInfo = new List<Actor>() };
+    private List<Movie> movies;
+    private List<Actor> allActors;
+    private List<Actor> selectedActors = new List<Actor>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load movies with actors information and all actors for the form
+        movies = await MovieService.GetMoviesWithActorsInfo();
+        allActors = await ActorService.GetActorsAsync();
+    }
+
+    private bool IsActorSelected(Actor actor)
+    {
+        // Check if the actor is selected for a new movie
+        return selectedActors.Any(a => a.Id == actor.Id);
+    }
+
+    private void OnActorSelectedChanged(ChangeEventArgs e, Actor actor)
+    {
+        // Add or remove actors from the selected actors list based on checkbox state
+        if ((bool)e.Value)
+        {
+            if (!selectedActors.Contains(actor))
+                selectedActors.Add(actor);
+        }
+        else
+        {
+            selectedActors.Remove(actor);
+        }
+    }
+    private void NavigateToEdit(string movieId)
+    {
+        NavigationManager.NavigateTo($"/movies/edit/{movieId}");
+    }
+    private void TestClick()
+    {
+        Console.WriteLine("TestClick method invoked!");
+    }
+    private async Task CreateMovie()
+    {
+        Console.WriteLine("CreateMovie method invoked."); // Log to confirm the method is called
+
+        if (string.IsNullOrWhiteSpace(newMovie.Title))
+        {
+            Console.WriteLine("Movie title is required.");
+            return;
+        }
+
+        // Set the ActorIds list to the selected actors' ObjectIds
+        newMovie.ActorIds = selectedActors
+            .Where(actor => actor.Id != null)
+            .Select(actor => new MongoDB.Bson.ObjectId(actor.Id))
+            .ToList();
+
+        // Populate ActorsInfo temporarily (on the client side) for display purposes
+        newMovie.ActorsInfo = selectedActors
+            .Where(actor => actor.Id != null)
+            .Select(actor => new Actor
+                {
+                    Id = actor.Id,
+                    Name = actor.Name,
+                    MovieIds = actor.MovieIds
+                })
+            .ToList();
+
+        
+
+        // Save the movie to the database (only ActorIds are stored)
+        await MovieService.CreateMovieAsync(newMovie);
+
+        // Now update each actor's MovieIds to include the new movie ID
+        foreach (var actor in selectedActors)
+        {
+            await ActorService.AddMovieToActorAsync(actor.Id, new MongoDB.Bson.ObjectId(newMovie.Id));
+        }
+
+        // After the movie is created, reload movies with actor information
+        movies = await MovieService.GetMoviesWithActorsInfo();
+
+        // Reset the form fields for the next movie creation
+        newMovie = new Movie { ActorsInfo = new List<Actor>() };
+        selectedActors.Clear();
+    }
+    private async Task DeleteMovie(string movieId)
+    {
+        await MovieService.DeleteMovieAsync(movieId);
+        Console.WriteLine("Movie deleted successfully.");
+
+        // Reload movies after deletion
+        movies = await MovieService.GetMoviesWithActorsInfo();
+    }
+
+
+}

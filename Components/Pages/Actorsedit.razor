@@ -1,0 +1,103 @@
+﻿@page "/actors/edit/{ActorId}"
+@using Labb4.Models
+@using MongoDB.Bson
+@inject ActorService ActorService
+@inject MovieService MovieService
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+<h3>Edit Actor</h3>
+
+@if (actor == null || allMovies == null)
+{
+    <p>Loading actor and movies...</p>
+}
+else
+{
+    <!-- Actor Edit Form -->
+    <div class="form-group">
+        <label>Name:</label>
+        <input @bind="actor.Name" class="form-control" />
+    </div>
+
+    <div class="form-group">
+        <label>Movies:</label>
+        @foreach (var movie in allMovies)
+        {
+            <div>
+                <input type="checkbox" checked="@IsMovieSelected(movie)" @onchange="@(e => OnMovieSelectedChanged(e, movie))" />
+                <label>@movie.Title</label>
+            </div>
+        }
+    </div>
+
+    <button type="button" class="btn btn-success" @onclick="SaveChanges">Save Changes</button>
+    <button type="button" class="btn btn-secondary" @onclick="Cancel">Cancel</button>
+}
+
+@code {
+    [Parameter]
+    public string ActorId { get; set; }
+
+    private Actor actor;
+    private List<Movie> allMovies;
+    private List<Movie> selectedMovies = new List<Movie>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load the actor and all movies
+        actor = await ActorService.GetActorByIdAsync(ActorId);
+        allMovies = await MovieService.GetMoviesWithActorsInfo();
+
+        // Set selectedMovies based on the actor's MovieIds
+        selectedMovies = allMovies
+            .Where(movie => actor.MovieIds?.Contains(new ObjectId(movie.Id)) == true)
+            .ToList();
+    }
+
+    private bool IsMovieSelected(Movie movie)
+    {
+        return selectedMovies.Any(m => m.Id == movie.Id);
+    }
+
+    private void OnMovieSelectedChanged(ChangeEventArgs e, Movie movie)
+    {
+        if ((bool)e.Value)
+        {
+            // Add movie to selectedMovies if it's not already selected
+            if (!selectedMovies.Contains(movie))
+                selectedMovies.Add(movie);
+        }
+        else
+        {
+            // Remove movie from selectedMovies
+            selectedMovies.Remove(movie);
+        }
+    }
+
+    private async Task SaveChanges()
+    {
+        if (string.IsNullOrWhiteSpace(actor.Name))
+        {
+            Console.WriteLine("Actor name is required.");
+            return;
+        }
+
+        // Update the actor's MovieIds based on selected movies
+        actor.MovieIds = selectedMovies
+            .Select(m => new ObjectId(m.Id))
+            .ToList();
+
+        // Update the actor in the database
+        await ActorService.UpdateActorAsync(actor.Id, actor);
+
+        // Navigate back to the actor list
+        NavigationManager.NavigateTo("/actor");
+    }
+
+    private void Cancel()
+    {
+        // Navigate back to the actor list without saving
+        NavigationManager.NavigateTo("/actor");
+    }
+}
