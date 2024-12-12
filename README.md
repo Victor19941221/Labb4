@@ -83,7 +83,7 @@ The application uses **Blazor** for the frontend and **MongoDB** for the databas
 
 ### 1. Clone the Repository
 ```bash
-git clone <repository-URL>
+git clone https://github.com/Victor19941221/Labb4
 ```
 
 ### 2. Install Dependencies
